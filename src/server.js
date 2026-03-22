@@ -664,13 +664,16 @@ function buildOnboardArgs(payload) {
 function runCmd(cmd, args, opts = {}) {
   return new Promise((resolve) => {
     const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 120_000;
+    const { timeoutMs: _timeoutIgnored, env: envExtra, cwd, ...spawnOpts } = opts;
 
     const proc = childProcess.spawn(cmd, args, {
-      ...opts,
+      ...spawnOpts,
+      cwd,
       env: {
         ...process.env,
         OPENCLAW_STATE_DIR: STATE_DIR,
         OPENCLAW_WORKSPACE_DIR: WORKSPACE_DIR,
+        ...(envExtra || {}),
       },
     });
 
@@ -701,6 +704,79 @@ function runCmd(cmd, args, opts = {}) {
       resolve({ code: code ?? 0, output: out });
     });
   });
+}
+
+const CAMOFOX_PLUGIN_ID = "camofox-browser";
+
+function camofoxPluginConfigJson() {
+  return JSON.stringify({
+    autoStart: true,
+    port: 9377,
+    maxSessions: 5,
+    maxTabsPerSession: 3,
+    sessionTimeoutMs: 600_000,
+    browserIdleTimeoutMs: 300_000,
+    maxOldSpaceSize: 128,
+  });
+}
+
+/**
+ * Idempotent: install Camofox OpenClaw plugin + OKX agent skills (see README).
+ * Does not run `doctor` — callers keep their existing doctor/restart flow.
+ */
+async function ensureAgentExtensions(opts = {}) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 300_000;
+  const home = process.env.HOME?.trim() || "/data";
+  try {
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(path.join(home, ".okx"), { recursive: true });
+    fs.mkdirSync(path.join(home, ".camofox", "cookies"), { recursive: true });
+  } catch (err) {
+    console.warn(`[extensions] mkdir: ${String(err)}`);
+  }
+
+  const extEnv = {
+    XDG_CACHE_HOME: process.env.XDG_CACHE_HOME?.trim() || "/root/.cache",
+    ...(process.env.CAMOFOX_COOKIES_DIR?.trim()
+      ? {}
+      : { CAMOFOX_COOKIES_DIR: path.join(home, ".camofox", "cookies") }),
+  };
+
+  const sections = [];
+
+  const pi = await runCmd(OPENCLAW_NODE, clawArgs(["plugins", "install", "@askjo/camofox-browser"]), {
+    timeoutMs,
+    env: extEnv,
+  });
+  sections.push(`[camofox] plugins install exit=${pi.code}\n${pi.output || "(no output)"}`);
+
+  const en = await runCmd(OPENCLAW_NODE, clawArgs(["plugins", "enable", CAMOFOX_PLUGIN_ID]), {
+    timeoutMs,
+    env: extEnv,
+  });
+  sections.push(`[camofox] plugins enable exit=${en.code}\n${en.output || "(no output)"}`);
+
+  const cf = await runCmd(
+    OPENCLAW_NODE,
+    clawArgs([
+      "config",
+      "set",
+      "--json",
+      `plugins.entries.${CAMOFOX_PLUGIN_ID}.config`,
+      camofoxPluginConfigJson(),
+    ]),
+    { timeoutMs, env: extEnv },
+  );
+  sections.push(`[camofox] config set exit=${cf.code}\n${cf.output || "(no output)"}`);
+
+  const sk = await runCmd("npx", ["--yes", "skills", "add", "okx/agent-skills"], {
+    timeoutMs,
+    cwd: WORKSPACE_DIR,
+    env: extEnv,
+  });
+  sections.push(`[okx] npx skills add exit=${sk.code}\n${sk.output || "(no output)"}`);
+
+  return sections.join("\n\n");
 }
 
 app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
@@ -862,6 +938,13 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
         extra += `\n[slack config] exit=${set.code} (output ${set.output.length} chars)\n${set.output || "(no output)"}`;
         extra += `\n[slack verify] exit=${get.code} (output ${get.output.length} chars)\n${get.output || "(no output)"}`;
       }
+    }
+
+    try {
+      const extOut = await ensureAgentExtensions({ timeoutMs: 300_000 });
+      extra += `\n[agent extensions]\n${extOut}\n`;
+    } catch (err) {
+      extra += `\n[agent extensions] failed: ${String(err)}\n`;
     }
 
     // Apply changes immediately.
@@ -1449,6 +1532,14 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
   // Auto-start the gateway if already configured so polling channels (Telegram/Discord/etc.)
   // work even if nobody visits the web UI.
   if (isConfigured()) {
+    try {
+      console.log("[wrapper] ensuring Camofox + OKX agent extensions...");
+      const extOut = await ensureAgentExtensions({ timeoutMs: 300_000 });
+      console.log(extOut);
+    } catch (err) {
+      console.warn(`[wrapper] ensureAgentExtensions: ${String(err)}`);
+    }
+
     console.log("[wrapper] config detected; starting gateway...");
     try {
       await ensureGatewayRunning();

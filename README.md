@@ -9,6 +9,8 @@ This repo packages **OpenClaw** for Railway with a small **/setup** web wizard s
 - Persistent state via **Railway Volume** (so config/credentials/memory survive redeploys)
 - One-click **Export backup** (so users can migrate off Railway later)
 - **Import backup** from `/setup` (advanced recovery)
+- **[Camofox Browser](https://github.com/jo-inc/camofox-browser)** OpenClaw plugin (anti-detection browsing) — installed and enabled automatically after setup; Camoufox + GTK stack are baked into the image
+- **[OKX Agent skills](https://www.okx.com/docs-v5/agent_en/#quick-start-openclaw)** — `okx/agent-skills` is added via `npx skills add` on first setup and on each boot (idempotent; outbound network required on first run)
 
 ## How it works (high level)
 
@@ -32,11 +34,19 @@ Recommended:
 - `OPENCLAW_STATE_DIR=/data/.openclaw`
 - `OPENCLAW_WORKSPACE_DIR=/data/workspace`
 
+Defaults in [`railway.toml`](railway.toml) (keep these for OKX + Camofox persistence):
+
+- `HOME=/data` — so `~/.okx/config.toml` and other dotfiles live on the Railway volume
+- `XDG_CACHE_HOME=/root/.cache` — Camoufox browser binaries are pre-installed in the image under `/root/.cache`; keeping cache off the volume avoids re-downloading hundreds of MB
+- `CAMOFOX_COOKIES_DIR=/data/.camofox/cookies` — optional Netscape cookie files for authenticated browsing (see Camofox README)
+
 Optional:
 - `OPENCLAW_GATEWAY_TOKEN` — if not set, the wrapper generates one (not ideal). In a template, set it using a generated secret.
 
 Notes:
 - This template pins OpenClaw to a released version by default via Docker build arg `OPENCLAW_GIT_REF` (override if you want `main`).
+- **Camofox + OKX** add image size and memory; use a Railway plan with **2GB+ RAM** if you hit OOMs.
+- First-time `npx skills add okx/agent-skills` needs **outbound network** to the npm registry.
 
 4) Enable **Public Networking** (HTTP). Railway will assign a domain.
    - This service listens on Railway’s injected `PORT` at runtime (recommended).
@@ -77,6 +87,8 @@ If you’re filing a bug, please include the output of:
 Railway containers have an ephemeral filesystem. Only the mounted volume at `/data` persists across restarts/redeploys.
 
 What persists cleanly today:
+- **OKX API config:** with `HOME=/data`, use `/data/.okx/config.toml` (see [OKX OpenClaw quick start](https://www.okx.com/docs-v5/agent_en/#quick-start-openclaw)). Prefer a **sub-account** API key with minimal permissions; never paste keys into model chat.
+- **Camofox cookies:** optional Netscape-format files under `CAMOFOX_COOKIES_DIR` (default `/data/.camofox/cookies`). Set `CAMOFOX_API_KEY` if you use cookie import (see [Camofox README](https://github.com/jo-inc/camofox-browser)).
 - **Custom skills / code:** anything under `OPENCLAW_WORKSPACE_DIR` (default: `/data/workspace`)
 - **Node global tools (npm/pnpm):** this template configures defaults so global installs land under `/data`:
   - npm globals: `/data/npm` (binaries in `/data/npm/bin`)
@@ -167,6 +179,9 @@ docker run --rm -p 8080:8080 \
   -e SETUP_PASSWORD=test \
   -e OPENCLAW_STATE_DIR=/data/.openclaw \
   -e OPENCLAW_WORKSPACE_DIR=/data/workspace \
+  -e HOME=/data \
+  -e XDG_CACHE_HOME=/root/.cache \
+  -e CAMOFOX_COOKIES_DIR=/data/.camofox/cookies \
   -v $(pwd)/.tmpdata:/data \
   clawdbot-railway-template
 

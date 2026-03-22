@@ -49,7 +49,49 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    curl \
+    unzip \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libxt6 \
+    libasound2 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fontconfig \
+    python3-minimal \
   && rm -rf /var/lib/apt/lists/*
+
+# Pre-bake Camoufox (matches jo-inc/camofox-browser Dockerfile) so runtime does not download ~300MB.
+# Pinned version — update with upstream when upgrading Camoufox.
+ARG CAMOUFOX_VERSION=135.0.1
+ARG CAMOUFOX_RELEASE=beta.24
+RUN mkdir -p /root/.cache/camoufox \
+  && curl -fsSL -o /tmp/camoufox.zip \
+    "https://github.com/daijro/camoufox/releases/download/v${CAMOUFOX_VERSION}-${CAMOUFOX_RELEASE}/camoufox-${CAMOUFOX_VERSION}-${CAMOUFOX_RELEASE}-lin.x86_64.zip" \
+  && (unzip -q /tmp/camoufox.zip -d /root/.cache/camoufox || true) \
+  && rm -f /tmp/camoufox.zip \
+  && chmod -R 755 /root/.cache/camoufox \
+  && test -f /root/.cache/camoufox/camoufox-bin
+
+# YouTube transcripts (camofox-browser API); same as upstream image.
+RUN curl -fsSL -o /usr/local/bin/yt-dlp \
+    https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+  && chmod +x /usr/local/bin/yt-dlp
+
+# Browser cache lives in the image; HOME on /data persists OKX ~/.okx and Camofox cookies on the Railway volume.
+ENV XDG_CACHE_HOME=/root/.cache
+ENV HOME=/data
+ENV CAMOFOX_COOKIES_DIR=/data/.camofox/cookies
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
 RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
@@ -62,6 +104,9 @@ ENV NPM_CONFIG_CACHE=/data/npm-cache
 ENV PNPM_HOME=/data/pnpm
 ENV PNPM_STORE_DIR=/data/pnpm-store
 ENV PATH="/data/npm/bin:/data/pnpm:${PATH}"
+
+# Default home for OKX / Camofox dotfiles (overridden by Railway volume mount at /data).
+RUN mkdir -p /data
 
 WORKDIR /app
 

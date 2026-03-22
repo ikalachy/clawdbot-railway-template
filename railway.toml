@@ -15,3 +15,9 @@ requiredMountPath = "/data"
 # can cause domain routing mismatches.
 OPENCLAW_STATE_DIR = "/data/.openclaw"
 OPENCLAW_WORKSPACE_DIR = "/data/workspace"
+# Persist OKX API config (~/.okx) and other dotfiles on the Railway volume (not /root).
+HOME = "/data"
+# Camoufox browser binary cache is baked into the image under /root/.cache; keep it off the volume.
+XDG_CACHE_HOME = "/root/.cache"
+# Netscape cookie import for Camofox (optional; set CAMOFOX_API_KEY to enable the endpoint).
+CAMOFOX_COOKIES_DIR = "/data/.camofox/cookies"
