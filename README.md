@@ -24,7 +24,7 @@ This repo packages **OpenClaw** for Railway with a small **/setup** web wizard s
 In Railway Template Composer:
 
 1) Create a new template from this GitHub repo.
-2) Add a **Volume** mounted at `/data`.
+2) **Add a Volume** mounted at **`/data`** (required). If you connect this repo with **“Deploy from GitHub”** instead of the Template Composer, Railway does not add a volume automatically — open your **service → Settings → Volumes → Add volume** and set the mount path to exactly `/data`, then redeploy.
 3) Set the following variables:
 
 Required:
@@ -118,6 +118,21 @@ mkdir -p /data/npm /data/npm-cache /data/pnpm /data/pnpm-store
 ```
 
 ## Troubleshooting
+
+### “This service requires a volume to be mounted at /data”
+
+You see this when [`requiredMountPath`](railway.toml) is set to `/data` in `railway.toml` (some forks or older commits). Railway will **block deploy** until a volume exists at that path.
+
+**Fix (recommended):** attach a volume and keep persistence:
+
+1. Open [Railway](https://railway.app) → your **Project** → select this **service**.
+2. **Settings** → **Volumes** → **Add volume**.
+3. **Mount path:** exactly `/data` (no trailing slash).
+4. **Save**, then **Redeploy**.
+
+**Fix (deploy without blocking):** current [`railway.toml`](railway.toml) does **not** set `requiredMountPath` by default, so pulls should deploy even before a volume exists. The image still sets `HOME=/data` etc. via the [`Dockerfile`](Dockerfile); without a mounted volume, data under `/data` is **not** persisted across restarts.
+
+Strict mode (optional): add `requiredMountPath = "/data"` under `[deploy]` if you want Railway to refuse deploys without a volume.
 
 ### “disconnected (1008): pairing required” / dashboard health offline
 
